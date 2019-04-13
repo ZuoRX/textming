@@ -1,0 +1,385 @@
+---
+title: "卫师姐文章复现"
+author: "XianRen Zuo"
+date: "2018年9月7日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 基于文本挖掘和自动分类的法院裁判决策支持系统设计
+
+##**摘要**
+
+#### 要解决的问题
+
+&emsp;&emsp;不断产生的新型法律关系使得成文法无法及时制定和修改
+
+&emsp;&emsp;世界各国纠纷诉讼的数目也在急剧增长，所以，很多国家面临如何在保证审判质量的前提下提高
+**司法系统审判效率**的问题。
+
+#### 本文贡献
+
+1. 本文以中国的医疗损害诉讼文本为例，使用文本挖掘和自动分类技术提出了一个**法院裁判决策支持系统（ＣＪ－ＤＳＳ）**，该系统可以依据以往判例预测新诉讼文本的判决结果：驳回与非驳回。
+
+2.  **组合特征提取法**确实能够改进和提高分类器的分类性能，而且针对支持向量机（ＳＶＭ）、人工神经网络（ＡＮＮ）、Ｋ最近邻（ＫＮＮ）三种不同的分类器。
+
+&emsp;&emsp;&emsp;**文档词频－卡方（ＤＦ－ＣＨＩ）组合特征提取法**对性能的改进程度有所差异，其中ＡＮＮ的性能改进最高。
+
+3. **集成学习**后该系统的分类性能更加稳定，显著优于单一分类器，Ｆ１值达到９３．３％。
+
+==================================================================================================================
+
+##1. 引言
+
+P1. 审判实践中积累的判例与法律规范结合可以完善法律体系。
+
+  &emsp;&emsp;本文就此提出法院裁判决策支持系统（CJ-DSS)
+
+
+P2. 决策支持系统（DSS）的应用很广泛，主要在医疗健康领域和企业管理领域。
+
+P3. 文本自动分类技术在专利文本上研究很成熟。
+
+ &emsp;&emsp;Kim 等 先对文本中的结构化信息进行聚类筛选出语义元素（Semantic elements），以此作为文本分类的基本特征，然后使用KNN（k-Nearest Neighbour）方法进行分类。实验发现，相对于未使用结构化信息的系统而言，分类效果提升了74％。
+
+P4. 文本分类技术的各种手段
+
+a. KNN算法是构建有效率的文本分类系统的重要手段之一
+
+b. 支持向量机（SVM）技术能够对实验数据的类型进行识别并分类。
+
+c. Coussement和Poel使用E-mail中的语义特征作为指标，结合传统的文本分类方法，设计出一个能够区分投诉和非投诉类的自动邮件分类系统，该系统能够达到８３％的准确率。
+
+d. 梁昕露和李美娟认为传统的投诉分类体系过于繁杂且缺乏逻辑，因此**从业务维度和生命周期维度对投诉数据进行二次分类**，采用ＳＶＭ算法对样本训练后进行预测，查准率超过七成。
+
+e. Al Qady和Kandil则依据文本内容对项目文件进行了自动分类，并在不同的条件下（如维数水平（Dimensionality level）和赋权方法（Wighting Method）测试了分类器的性能。该研究发现，准确率最高的分类器是应用降维技术和TF-IDF赋权法的Rochio和KNN分类器，其次，使用投票策略将分类器结合也能够提高分类器的性能。
+
+
+##2. 研究方法
+
+####2.1 文本预处理
+
+2.1.1 中文分词与初步特征降维
+
+```{r}
+#导入训练集的数据
+train <- read.csv("C:\\Users\\lenovo\\Desktop\\wei/lizi.csv")
+csv <- train
+```
+
+a. 使用Rwordseg包分词
+
+```{r, eval=FALSE}
+library(NLP)
+library(tm)
+library(rJava)
+library(Rwordseg)
+library(SnowballC)
+library(MASS)
+library(RColorBrewer)
+library(wordcloud)
+library(pcaPP)
+library(Rcpp)
+library(cluster)
+library(mvtnorm)
+library(locfit)
+library(ash)
+library(KernSmooth)
+library(misc3d)
+library(rgl)
+library(ks)
+library(ggplot2)
+library(maps)
+library(mapdata)
+library(sp)
+library(maptools)
+library(grid)
+library(vcd)
+library(topicmodels)
+library(randomForest)
+library(rFerns)
+library(ranger)
+library(Boruta)
+library(lattice)
+library(caret)
+library(slam)
+library(Matrix)
+library(foreach)
+library(glmnet)
+library(rainbow)
+library(hdrcde)
+library(ggmap)
+```
+
+b. 加载sougou细胞库中的法律词汇、法律文本词汇、以及医学词汇字典
+
+```{r,eval=FALSE}
+#安装词典：
+installDict("C:\\Users\\lenovo\\Desktop\\wei\\sougou/law.scel", "law")
+#installDict("C:\\Users\\lenovo\\Desktop\\wei\\sougou/med.scel", "med")
+installDict("C:\\Users\\lenovo\\Desktop\\wei\\sougou/lawbook.scel", "lawbook")
+```
+
+
+c. 初步降维时，先删除中文停用词，如“我”，“你”，“的”
+
+```{r,eval=FALSE}
+nvword<-function(wf){
+  wf.n=wf
+  for(i in 1:length(wf)){
+    wf.n[[i]]<-wf[[i]][which(names(wf[[i]])=='n'|names(wf[[i]])==
+                            'v'|names(wf[[i]])=='lawbook'|names(wf[[i]])==
+                            'nz'|names(wf[[i]])=='med'|names(wf[[i]])=='law')]
+    wf.n[[i]]<-wf.n[[i]][which(is.na(match(wf.n[[i]],c("是","有","可以"))))]
+  }#nz:其他专业名词 which(is.na()):返回缺失值位置
+  ovid<-Corpus(VectorSource(wf.n))#建立动态语料库   向量结构
+  ovid#“数据库”
+}
+```
+
+
+d. 进一步通过词性标注，选取名词、动词以及专业词汇等具有更高价值的词汇，减少无意义词条干扰性，以备后阶段使用
+
+```{r,eval=FALSE}
+#人名识别开启
+segment.options(isNameRecognition = TRUE) #分离人名
+
+segword<-function(csv){
+  pp<-as.character(csv$text)
+  rf<-segmentCN(pp,nature=TRUE)#nature:是否分离词性，比如动词、名词等
+  rf
+}
+```
+
+2.1.2 文档表示模型与词条权重
+
+a. 在文本内容分类领域，最常用的文本表示模型是向量空间模型
+
+&emsp;&emsp;向量空间模型本质上能够将文档转化为电子表格形式，电子表格的每一列关联一个特征，每一行代表一个文档，词条权重是指某词条在某篇文档中出现的频率
+
+b. 目前在研究中最为常用的是ＴＦ－ＩＤＦ权值，它是一个由词条重要性比例因子来修正的词频
+
+```{r,eval=FALSE}
+modelword<-function(ovid,csv){
+  # 为了后续建模的需要，一般需要对语料库创立词条-文档关系矩阵，
+  # 创建词条-文档关系矩阵所用到的函数为： 
+  # TermDocumentMatrix(x, control = list()) 
+  # DocumentTermMatrix(x, control = list()) 
+  # 它们创建的矩阵互为转置矩阵。
+  dtm<-DocumentTermMatrix(ovid,control = list(wordLengths = c(2,Inf)))
+  rtdtm<-removeSparseTerms(dtm, 0.9)#可以选择去除权重较小的项
+  rtdtm<-rtdtm[row_sums(rtdtm)>0,]#去除空行
+  tfidf<-weightBin(rtdtm)  #Binary weight a term-document matrix.权重矩阵
+  #tfidf<-weightTfIdf(rtdtm1)
+  dtmtx<-as.matrix(tfidf)
+  doc<-as.integer(dimnames(rtdtm[row_sums(rtdtm)>0,])$Docs)#检索或设置对象的名称。
+  nb<-as.matrix(csv$type[doc])
+  modeldata<-data.frame(nb,dtmtx)
+  rtn<-list(modeldata,doc)
+  rtn
+}
+```
+
+
+####2.2 特征提取
+
+原因：用向量空间模型表示文本时，该向量的维数非常大，能够达到几十万维，而一般只选择２％－５％的特征项。
+
+(1). ＤＦ（DocumentFrequency）是指语料库中出现某词条的文档数目，它是最简单的特征抽取技术。
+
+&emsp;&emsp;ＤＦ通过设定阈值可以剔除低频词，筛选出出现某词条的文档数目大于该阈值的词条作为分类特征，其基本假设是低频词对于预测贡献度较低，对分类效果无显著影响。因此将低频词剔除能够降低特征维数，有可能提高分类精度。
+
+```{r,eval=FALSE}
+#方法3：DF
+kk <-list()
+
+ddb1<-subset(modeldata1,modeldata1$nb=="0")
+dfn1<-apply(ddb1[,-1],2,sum)
+kk[[1]] <- names(dfn1[which(dfn1>10)])
+
+ddb2<-subset(modeldata1,modeldata1$nb=="1")
+dfn2<-apply(ddb2[,-1],2,sum)
+kk[[2]] <- names(dfn2[which(dfn2>30)])
+
+modelky3 <-unique(unlist(kk))
+modelky3
+```
+
+
+(2). ＣＨＩ统计
+
+&emsp;&emsp;原理是通过观察实际值与理论值的偏差来确定理论的正确与否，在进行特征选择时，可以用来度量特征ｔ和类标ｃ 之间的相关程度，并假设ｔ和ｃ 之间符合具有一阶自由度的卡方 分布。
+
+&emsp;&emsp;原假设为特征ｔ和类标ｃ不相关，卡方统计值越高，该词条与该类别的相关性越大，对预测结果也更有价值。ＣＨＩ统计是一种依赖分类类别的特征提取方法，对低频词有所倚重，即存在“低频词缺陷”
+
+```{r,eval=FALSE}
+#方法4:卡方
+chisq<-function(x)
+{mx<-table(modeldata1$nb,x)
+ ct<-chisq.test(mx)
+ ct$statistic}
+mdc<-apply(modeldata1[,-1],2,chisq)
+summary(mdc)
+modelky4<-names(mdc[which(mdc>3)])
+modelky4
+
+chisq<-function(x)
+{mx<-table(modeldata1$nb,x)
+ ct<-chisq.test(mx)
+ ct$statistic}
+mdc<-apply(modeldata1[modelky3],2,chisq)
+summary(mdc)
+modelky4<-names(mdc[which(mdc>2)])
+```
+
+
+(3). ＤＦ－ＣＨＩ组合特征提取法
+
+&emsp;&emsp;先用ＤＦ滤去出现次数较低的词条，然后在此基础上通过ＣＨＩ筛选出与分类结果更为相关的特征集。这种方法能够通过组合互补，提取出带有更多分类信息的词条，理论上能够提升分类器的性能表现。
+
+####2.3 分类技术
+
+2.3.1 支持向量机SVM
+
+```{r,eval=FALSE}
+#SVM
+library(kernlab)
+sample_ksvm  <-  ksvm(pnb~., data=traindata,type = "C-svc", kernel = "rbfdot",prob.model = TRUE)
+svmCl  <-  predict(sample_ksvm,traindata[,-1],type = "probabilities")
+svmpred<-apply(svmCl,1,function(x) which(x==max(x)))
+svmpred<-c(svmpred,rep(1,2,length(qyn1)))
+trainyn<-c(traindata$pnb,qyn1)
+svmTable <-table(SVM=svmpred, sample=trainyn)
+svmTable
+svmpred
+
+#训练集合的准确率，覆盖率
+v1 = sum(diag(svmTable))/sum(svmTable)
+v2 = sum(diag(svmTable))/100
+f=2/(1/v1 + 1/v2)
+f
+
+svmT <-  predict(sample_ksvm,testdata[,-1],type = "probabilities")
+svmpred<-apply(svmT,1,function(x) which(x==max(x)))
+svmpred<-c(svmpred,rep(1,2,length(qyn2)))
+testyn<-c(testdata$pnb,qyn2)
+svmTable <-table(SVM=svmpred, sample=testyn)
+svmTable
+svmpred
+#测试集合准确率，召回率，F值
+v1 = sum(diag(svmTable))/sum(svmTable)
+v2 = sum(diag(svmTable))/60
+f=2/(1/v1 + 1/v2)
+f
+```
+
+2.3.2 人工神经网络ANN
+
+```{r,eval=FALSE}
+#神经网络
+library(RSNNS)
+tTargets = decodeClassLabels(traindata$pnb)
+model.net <- mlp(traindata[,-1], tTargets, size=5, learnFunc="Quickprop", learnFuncParams=c(0.1, 2.0, 0.0001, 0.1),maxit=100)
+predictions <- predict(model.net,traindata[,-1])
+nntpred<-apply(predictions,1,function(x) which(x==max(x)))
+nntpred<-c(nntpred,rep(1,2,length(qyn1)))
+trainyn<-c(traindata$pnb,qyn1)
+nntTable <-table(NNT=nntpred, sample=trainyn)
+nntTable
+nntpred
+sum(diag(nntTable))/sum(nntTable)
+
+predictions <- predict(model.net,testdata[,-1])
+nntpred<-apply(predictions,1,function(x) which(x==max(x)))
+nntpred<-c(nntpred,rep(1,2,length(qyn2)))
+testyn<-c(testdata$pnb,qyn2)
+nntTable <-table(NNT=nntpred, sample=testyn)
+nntTable
+nntpred
+v1 = sum(diag(nntTable))/sum(nntTable)
+v2 = sum(diag(nntTable))/60
+f=2/(1/v1 + 1/v2)
+f
+```
+
+
+2.3.3 最近邻法KNN
+
+&emsp;&emsp;ＫＮＮ通过计算新文档与已知类别的文档集中所有文档的相似度，选择ｋ个和新文档最相似的文档，在这ｋ个文档中频率最高的标签就是该文档的分类标签。
+
+```{r,eval=FALSE}
+#KNN
+library(class)
+sample_knnCl  <-  knn(traindata[,-1], traindata[,-1], traindata$pnb)
+prfpred<-c(as.integer(sample_knnCl),rep(1,2,length(qyn1)))
+trainyn<-c(traindata$pnb,qyn1)
+kn <-table(KNN=prfpred, sample=trainyn)
+kn
+sum(diag(kn))/sum(kn) #查看分类正确率
+
+sample_knnT  <-  knn(traindata[,-1], testdata[,-1], traindata$pnb)
+prfpred<-c(as.integer(sample_knnT),rep(1,2,length(qyn2)))
+testyn<-c(testdata$pnb,qyn2)
+kn <-table(KNN=prfpred, sample=testyn)
+kn
+v1 = sum(diag(kn))/sum(kn)
+v2 = sum(diag(kn))/60
+f=2/(1/v1 + 1/v2)
+f
+```
+
+####2.4 评价标准
+
+a. 召回率Ｒ(Recall)
+
+被正确分类的文档数和被测试文档总数的比率，即该类样本被分类器正确识别的概率
+
+b. 准确率P（precision）
+
+正确分类的文档数与被分类器识别为该类的文档数的比率，即分类器做出的决策是正确的概率
+
+c. F1
+
+![](c:/users/lenovo/desktop/wei/F1.png)
+
+####2.5 集成学习模型
+
+集成学习是指通过构建一个新模型，经过适当训练后，将达到预期性能的基学习器的预测结果作为输入，经过线性或非线性运算后最终输出一个概率最大的预测结果。
+
+
+##3. 系统整体设计
+
+&emsp;&emsp;第一部分以非结构化文本作为输入，经过预处理后形成结构化的词条文档矩阵，然后通过更换特征提取方法和分类器，筛选出达到预期性能的基学习器，同时输出基学习器的判决结果；
+
+&emsp;&emsp;第二部分则将基学习器对测试集文本的分类结果作为输入，通过集成学习后，输出对测试集文本的最终判决。
+
+![](c:/users/lenovo/desktop/wei/CJ-DSS.png)
+
+##4. 实证分析与结果
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
